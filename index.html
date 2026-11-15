@@ -1,0 +1,241 @@
+
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>WiFi Chess AI</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
+<style>
+*{box-sizing:border-box}
+body{
+ margin:0;background:#101820;color:white;
+ font-family:Arial,sans-serif;padding:15px
+}
+main{max-width:520px;margin:auto}
+h1{text-align:center;color:#63c7a5}
+.panel{
+ background:#1d2b36;padding:15px;
+ border-radius:13px;margin:14px 0
+}
+.board{
+ display:grid;grid-template-columns:repeat(8,1fr);
+ width:100%;aspect-ratio:1
+}
+.square{
+ display:flex;align-items:center;
+ justify-content:center;aspect-ratio:1;
+ font-size:clamp(25px,8vw,48px);
+ cursor:pointer;position:relative
+}
+.light{background:#f0d9b5;color:#111}
+.dark{background:#b58863;color:#111}
+.selected{outline:4px solid yellow;outline-offset:-4px}
+.last{box-shadow:inset 0 0 0 4px #63c7a5}
+button{
+ background:#246b59;color:white;border:0;
+ padding:12px;border-radius:8px;
+ margin:4px;cursor:pointer;font-weight:bold
+}
+button:disabled{opacity:.4}
+textarea{
+ width:100%;height:130px;
+ background:#101820;color:white;
+ padding:10px;border:1px solid #63c7a5;
+ border-radius:8px
+}
+#result{white-space:pre-wrap;line-height:1.6}
+.controls{text-align:center}
+</style>
+</head>
+<body>
+<main>
+
+<h1>♟ WIFI CHESS AI</h1>
+<p style="text-align:center">CHESS ANALYSIS SYSTEM</p>
+
+<div class="panel">
+ <div id="board" class="board"></div>
+ <div class="controls">
+  <button onclick="back()">◀ LÙI</button>
+  <button onclick="next()">TIẾN ▶</button>
+  <button onclick="restart()">CHƠI LẠI</button>
+ </div>
+ <p id="turn">Bàn cờ sẵn sàng</p>
+</div>
+
+<div class="panel">
+ <h3>📁 NHẬP VÁN CỜ</h3>
+ <textarea id="pgn" placeholder="Dán PGN ván cờ đã kết thúc vào đây..."></textarea>
+ <button onclick="loadGame()">TẢI VÁN CỜ</button>
+ <button onclick="analyze()">PHÂN TÍCH AI</button>
+</div>
+
+<div class="panel">
+ <h3>🤖 AI ANALYSIS</h3>
+ <div id="result">Chưa có phân tích.</div>
+</div>
+
+</main>
+
+<script>
+const ChessLib=window.Chess;
+
+const symbols={
+ wk:"♔",wq:"♕",wr:"♖",wb:"♗",wn:"♘",wp:"♙",
+ bk:"♚",bq:"♛",br:"♜",bb:"♝",bn:"♞",bp:"♟"
+};
+
+let moves=[];
+let positions=[];
+let current=0;
+
+function render(){
+ const board=document.getElementById("board");
+ board.innerHTML="";
+
+ if(!positions.length)return;
+
+ const game=new ChessLib(positions[current]);
+ const data=game.board();
+
+ data.forEach((row,r)=>{
+  row.forEach((piece,c)=>{
+   const cell=document.createElement("div");
+   cell.className="square "+((r+c)%2===0?"light":"dark");
+
+   if(piece){
+    cell.textContent=symbols[piece.color+piece.type];
+   }
+
+   const square="abcdefgh"[c]+(8-r);
+   const last=moves[current-1];
+
+   if(last&&(last.from===square||last.to===square)){
+    cell.classList.add("last");
+   }
+
+   board.appendChild(cell);
+  });
+ });
+
+ document.getElementById("turn").textContent=
+ "Vị trí "+current+" / "+moves.length+
+ (current===moves.length?" · Kết thúc ván":"");
+}
+
+function loadGame(){
+ const input=document.getElementById("pgn").value.trim();
+
+ if(!input){
+  alert("Bạn chưa nhập PGN!");
+  return;
+ }
+
+ try{
+  const game=new ChessLib();
+
+  if(!game.load_pgn(input)){
+   throw new Error("PGN không hợp lệ");
+  }
+
+  moves=game.history({verbose:true});
+
+  const replay=new ChessLib();
+  positions=[replay.fen()];
+
+  moves.forEach(move=>{
+   replay.move(move);
+   positions.push(replay.fen());
+  });
+
+  current=moves.length;
+  render();
+
+  document.getElementById("result").textContent=
+   "Đã tải thành công "+moves.length+" nước đi.";
+
+ }catch(error){
+  alert("Không thể đọc PGN: "+error.message);
+ }
+}
+
+function back(){
+ current=Math.max(0,current-1);
+ render();
+}
+
+function next(){
+ current=Math.min(moves.length,current+1);
+ render();
+}
+
+function restart(){
+ current=0;
+ render();
+}
+
+async function analyze(){
+ const result=document.getElementById("result");
+
+ if(!positions.length){
+  result.textContent="Hãy tải PGN trước.";
+  return;
+ }
+
+ result.textContent="Đang phân tích...";
+
+ try{
+  const fen=positions[current];
+
+  const url=
+   "https://lichess.org/api/cloud-eval?fen="+
+   encodeURIComponent(fen)+"&multiPv=3";
+
+  const response=await fetch(url);
+
+  if(response.status===404){
+   result.textContent=
+    "Chưa có dữ liệu phân tích cho vị trí này trên Lichess.";
+   return;
+  }
+
+  if(!response.ok){
+   throw new Error("Lỗi kết nối máy chủ");
+  }
+
+  const data=await response.json();
+
+  let output="ĐỘ SÂU: "+data.depth+"\n\n";
+
+  data.pvs.forEach((pv,i)=>{
+   output+="PHƯƠNG ÁN "+(i+1)+"\n";
+   output+="Nước đi UCI: "+
+    pv.moves.split(" ").slice(0,8).join(" ")+"\n";
+
+   if(pv.cp!==undefined){
+    output+="Điểm: "+(pv.cp/100).toFixed(2)+"\n";
+   }
+
+   if(pv.mate!==undefined){
+    output+="Chiếu hết trong: "+pv.mate+"\n";
+   }
+
+   output+="\n";
+  });
+
+  result.textContent=output;
+
+ }catch(error){
+  result.textContent=
+   "Không thể phân tích.\n"+error.message;
+ }
+}
+
+const initial=new ChessLib();
+positions=[initial.fen()];
+render();
+</script>
+</body>
+  </html>
+  
